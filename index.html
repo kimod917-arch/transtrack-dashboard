@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TransTrack IoT - Plateforme Exploitant</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { margin: 0; font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; height: 100vh; background-color: #0f172a; color: #f8fafc; }
+        #login-screen { position: fixed; inset: 0; background: #0f172a; z-index: 100; display: flex; align-items: center; justify-content: center; }
+        .login-box { background: #1e293b; padding: 40px; border-radius: 12px; border: 1px solid #334155; width: 100%; max-width: 380px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5); text-align: center; }
+        .login-box h2 { color: #38bdf8; margin-bottom: 25px; }
+        #main-interface { display: none; flex-direction: column; height: 100vh; width: 100%; }
+        nav { background-color: #1e293b; padding: 10px 20px; display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #334155; }
+        nav h1 { margin: 0; font-size: 1.4rem; color: #38bdf8; }
+        .nav-links { display: flex; gap: 8px; }
+        .nav-btn { background: #334155; color: #94a3b8; border: none; padding: 8px 14px; font-weight: 600; border-radius: 6px; cursor: pointer; transition: all 0.2s; font-size: 0.9rem; }
+        .nav-btn:hover { background: #475569; color: white; }
+        .nav-btn.active { background: #38bdf8; color: #0f172a; }
+        #status-indicator { font-size: 0.85rem; padding: 4px 8px; border-radius: 4px; font-weight: bold; }
+        .online { background-color: rgba(74, 222, 128, 0.2); color: #4ade80; }
+        .offline { background-color: rgba(248, 113, 113, 0.2); color: #f87171; }
+        #section-carte { padding: 0; height: calc(100vh - 60px); position: relative; }
+        #sidebar { width: 300px; background-color: #1e293b; padding: 20px; display: flex; flex-direction: column; gap: 15px; border-right: 1px solid #334155; z-index: 10; }
+        #map { flex-grow: 1; height: 100%; }
+        .card { background-color: #334155; padding: 15px; border-radius: 8px; }
+        .label { font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; font-weight: bold; margin-bottom: 4px; }
+        .valeur { font-size: 1.2rem; color: #f8fafc; font-weight: 600; }
+        .page-container { width: 100%; max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 15px; }
+        .appareil-group { background-color: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 15px; margin-bottom: 12px; }
+        .appareil-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 8px; margin-bottom: 10px; }
+        .appareil-title { font-size: 1rem; color: #38bdf8; font-weight: bold; }
+        .plainte-count { background: #ef4444; color: white; padding: 2px 8px; border-radius: 20px; font-size: 0.75rem; }
+        .plainte-text-item { background: #0f172a; padding: 10px; border-radius: 6px; margin-bottom: 6px; display: flex; justify-content: space-between; font-size: 0.85rem; }
+        .form-group { display: flex; flex-direction: column; gap: 8px; background-color: #1e293b; padding: 20px; border-radius: 8px; border: 1px solid #334155; max-width: 450px; }
+        input[type="text"], input[type="password"], input[type="number"] { padding: 10px; background: #0f172a; border: 1px solid #475569; border-radius: 6px; color: white; font-size: 0.95rem; margin-bottom: 10px; width: 93%; }
+        button.action-btn { background: #38bdf8; color: #0f172a; border: none; padding: 12px; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 0.95rem; }
+        button.action-btn:hover { background: #7dd3fc; }
+        .infraction-table { width: 100%; border-collapse: collapse; background-color: #1e293b; border-radius: 8px; overflow: hidden; border: 1px solid #334155; font-size: 0.9rem; }
+        .infraction-table th, .infraction-table td { padding: 12px 15px; text-align: left; }
+        .infraction-table th { background-color: #334155; color: #38bdf8; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.5px; }
+        .infraction-table tr { border-bottom: 1px solid #334155; }
+        .badge-danger { background-color: rgba(239, 68, 68, 0.2); color: #f87171; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 0.8rem; }
+    </style>
+</head>
+<body>
+
+    <div id="login-screen">
+        <div class="login-box">
+            <h2>TransTrack Admin Log</h2>
+            <div style="text-align: left; margin-bottom: 15px;">
+                <label class="label">Identifiant</label>
+                <input type="text" id="login-user" placeholder="admin" value="admin">
+                <label class="label">Mot de passe</label>
+                <input type="password" id="login-pass" placeholder="••••••••" value="admin123">
+            </div>
+            <button class="action-btn" style="width:100%;" onclick="tenterConnexion()">Ouvrir la Session</button>
+            <p id="login-error" style="color:#f87171; font-size:0.85rem; margin-top:15px; display:none;">Identifiants incorrects.</p>
+        </div>
+    </div>
+
+    <div id="main-interface">
+        <nav>
+            <h1>TRANSTRACK SYSTEM IoT</h1>
+            <div class="nav-links">
+                <button class="nav-btn active" onclick="switchPage('section-carte', this)">📡 Suivi Temps Réel</button>
+                <button class="nav-btn" onclick="switchPage('section-plaintes', this)">🚨 Plaintes Bord</button>
+                <button class="nav-btn" onclick="switchPage('section-infractions', this)">⚠️ Hors Trajet</button>
+                <button class="nav-btn" onclick="switchPage('section-config', this)">🗺️ Config Trajets</button>
+                <button class="nav-btn" style="background:#ef4444; color:white; margin-left:15px;" onclick="deconnexion()">🔒 Quitter</button>
+            </div>
+            <div id="status-indicator" class="offline">Serveur Hors Ligne</div>
+        </nav>
+
+        <div id="section-carte" class="content-section active">
+            <div id="sidebar">
+                <h3>Télémétrie Flotte</h3>
+                <div class="card">
+                    <div class="label">Véhicule Actif</div>
+                    <div id="bus-id" class="valeur">Aucun flux...</div>
+                </div>
+                <div class="card">
+                    <div class="label">Vitesse Instantanée</div>
+                    <div id="bus-vitesse" class="valeur">-- km/h</div>
+                </div>
+            </div>
+            <div id="map"></div>
+        </div>
+
+        <div id="section-plaintes" class="content-section">
+            <div class="page-container">
+                <h2>🚨 Modérateur des Incidents Passagers</h2>
+                <div id="container-plaintes-regroupees">
+                    <p style="color: #64748b;">Aucune plainte enregistrée.</p>
+                </div>
+            </div>
+        </div>
+
+        <div id="section-infractions" class="content-section">
+            <div class="page-container">
+                <h2>⚠️ Journal de Non-Respect des Itinéraires Réseaux</h2>
+                <table class="infraction-table">
+                    <thead>
+                        <tr>
+                            <th>Horodatage</th>
+                            <th>Bus ID</th>
+                            <th>Itinéraire Attendu</th>
+                            <th>Coordonnées Déviation</th>
+                            <th>Écart Mesuré</th>
+                            <th>Alerte</th>
+                        </tr>
+                    </thead>
+                    <tbody id="liste-infractions-corps">
+                        <tr>
+                            <td colspan="6" style="text-align:center; color:#64748b; padding:20px;">Aucune infraction détectée pour le moment.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="section-config" class="content-section">
+            <div class="page-container">
+                <h2>🗺️ Configuration de Destination Distante</h2>
+                <div class="form-group">
+                    <div class="label">ID Véhicule cible</div>
+                    <input type="number" id="input-bus-id" value="1">
+                    <div class="label">Nouvelle Ligne de Transport</div>
+                    <input type="text" id="input-itineraire" placeholder="Ex: Ligne B - Kamalondo">
+                    <button class="action-btn" onclick="envoyerItineraire()">Pousser la Feuille de Route</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        function tenterConnexion() {
+            const user = document.getElementById("login-user").value.trim();
+            const pass = document.getElementById("login-pass").value.trim();
+            if(user === "admin" && pass === "admin123") {
+                document.getElementById("login-screen").style.display = "none";
+                document.getElementById("main-interface").style.display = "flex";
+                setTimeout(() => { map.invalidateSize(); }, 300);
+            } else {
+                document.getElementById("login-error").style.display = "block";
+            }
+        }
+
+        function deconnexion() {
+            document.getElementById("login-screen").style.display = "flex";
+            document.getElementById("main-interface").style.display = "none";
+        }
+
+        function switchPage(sectionId, btn) {
+            document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
+            document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById(sectionId).classList.add('active');
+            btn.classList.add('active');
+            if(sectionId === 'section-carte') { setTimeout(() => { map.invalidateSize(); }, 100); }
+        }
+
+        // --- GESTION DU MODE DE VUE MAP / SATELLITE INTERACTIF ---
+        const couchePlan = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 });
+        const coucheSatellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+        });
+
+        // Initialisation de la carte (Vue Satellite configurée par défaut pour ton déploiement)
+        const map = L.map('map', {
+            center: [-11.6608, 27.4794],
+            zoom: 14,
+            layers: [coucheSatellite]
+        });
+
+        const fondsDeCarte = {
+            "Vue Satellite (Recommandée)": coucheSatellite,
+            "Plan Urbain Standard": couchePlan
+        };
+        L.control.layers(fondsDeCarte, null, { position: 'topright' }).addTo(map);
+
+        let marqueurBus = null;
+        let historiqueCoordonnees = [];
+        
+        // CONTEXTE VISUEL ÉVOLUÉ : Ligne cyan à haute visibilité contrastée pour le mode satellite
+        let traceParcours = L.polyline([], { 
+            color: '#00f2ff', 
+            weight: 6, 
+            opacity: 0.9,
+            lineJoin: 'round'
+        }).addTo(map);
+
+        let dictionnairePlaintes = {};
+        let aEuInfraction = false;
+
+        // --- ADRESSE DYNAMIQUE PRÊTE POUR L'HÉBERGEMENT EN LIGNE ---
+        // Se connecte automatiquement à l'adresse de domaine actuelle (ex: votre-vps-iot.com) au lieu du localhost fixe
+        const hoteEnLigne = window.location.hostname || "127.0.0.1";
+        const ws = new WebSocket(`ws://${hoteEnLigne}:8765`);
+        const statusInd = document.getElementById("status-indicator");
+
+        ws.onopen = () => { statusInd.innerText = "Serveur En Ligne"; statusInd.className = "online"; };
+        ws.onclose = () => { statusInd.innerText = "Serveur Hors Ligne"; statusInd.className = "offline"; };
+
+        ws.onmessage = (event) => {
+            const paquet = JSON.parse(event.data);
+            
+            if (paquet.type === "POSITION") {
+                const donnees = paquet.data;
+                document.getElementById("bus-id").innerText = "Bus ID #" + donnees.id_vehicule;
+                document.getElementById("bus-vitesse").innerText = donnees.vitesse + " km/h";
+                
+                const nouvellePos = [donnees.latitude, donnees.longitude];
+                
+                // AJOUT EXPÉDITIF ET MARQUAGE CONTINU DU DÉPLACEMENT SUR LA CARTE
+                historiqueCoordonnees.push(nouvellePos);
+                traceParcours.setLatLngs(historiqueCoordonnees);
+
+                if (marqueurBus === null) {
+                    // Création de l'icône de repère
+                    marqueurBus = L.marker(nouvellePos).addTo(map);
+                    map.setView(nouvellePos, map.getZoom());
+                } else {
+                    // Déplacement fluide du repère existant
+                    marqueurBus.setLatLng(nouvellePos);
+                }
+            } 
+            else if (paquet.type === "PLAINTE") {
+                const idAppareil = paquet.data.id_appareil || "Inconnu";
+                if (!dictionnairePlaintes[idAppareil]) dictionnairePlaintes[idAppareil] = [];
+                dictionnairePlaintes[idAppareil].unshift({ msg: paquet.data.message, date: new Date().toLocaleTimeString() });
+                renderPlaintesPage();
+            }
+            else if (paquet.type === "INFRACTION_TRAJET") {
+                ajouterLigneInfraction(paquet.data);
+            }
+        };
+
+        function renderPlaintesPage() {
+            const container = document.getElementById("container-plaintes-regroupees");
+            container.innerHTML = "";
+            Object.keys(dictionnairePlaintes).forEach(idAppareil => {
+                let html = `<div class="appareil-group"><div class="appareil-header"><div class="appareil-title">📱 ID Appareil : ${idAppareil}</div><div class="plainte-count">${dictionnairePlaintes[idAppareil].length} message(s)</div></div><div>`;
+                dictionnairePlaintes[idAppareil].forEach(item => {
+                    html += `<div class="plainte-text-item"><div>"${item.msg}"</div><div style="color:#64748b;">${item.date}</div></div>`;
+                });
+                html += `</div></div>`;
+                container.innerHTML += html;
+            });
+        }
+
+        function ajouterLigneInfraction(data) {
+            const corpsTableau = document.getElementById("liste-infractions-corps");
+            if (!aEuInfraction) { corpsTableau.innerHTML = ""; aEuInfraction = true; }
+            
+            const heure = new Date().toLocaleTimeString();
+            const nvlleLigne = `
+                <tr>
+                    <td>${heure}</td>
+                    <td><b>Bus #${data.id_vehicule}</b></td>
+                    <td>${data.itineraire}</td>
+                    <td>${data.latitude.toFixed(5)}, ${data.longitude.toFixed(5)}</td>
+                    <td style="color:#f87171; font-weight:bold;">${data.distance_ecart.toFixed(1)} mètres</td>
+                    <td><span class="badge-danger">HORS TRAJET</span></td>
+                </tr>
+            `;
+            corpsTableau.innerHTML = nvlleLigne + corpsTableau.innerHTML;
+        }
+
+        function envoyerItineraire() {
+            const busId = document.getElementById("input-bus-id").value;
+            const text = document.getElementById("input-itineraire").value;
+            if(!text.trim()) return;
+            
+            ws.send(JSON.stringify({
+                type: "CONFIG_RESEAU",
+                id_vehicule: parseInt(busId),
+                nouveau_itineraire: text
+            }));
+            document.getElementById("input-itineraire").value = "";
+            alert("Feuille de route modifiée.");
+        }
+    </script>
+</body>
+</html>
