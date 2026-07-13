@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TransTrack Expert - Système de Supervision IoT</title>
+    <title>GESTION TRANSPORT LUBUMBASHI - Système de Supervision </title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     
@@ -131,7 +131,7 @@
 
     <div id="auth-screen">
         <div class="auth-box">
-            <h2>TransTrack Access</h2>
+            <h2>Login Access</h2>
             <input type="text" name="prevent_autofill" style="display:none;" />
             <input type="password" name="prevent_autofill_pwd" style="display:none;" />
             
@@ -145,7 +145,7 @@
     <div id="nav-sidebar">
         <div>
             <div class="brand-section">
-                <h1>TRANSTRACK v2.0</h1>
+                <h1>Supervision Tansport</h1>
             </div>
             <div id="status-indicator" class="server-status offline">SERVEUR DISCONNECT</div>
             
@@ -157,7 +157,7 @@
                     <span class="nav-icon">⚠️</span> Alertes Géofencing
                 </button>
                 <button id="btn-plaintes" class="nav-item" onclick="navigatePage('page-plaintes')">
-                    <span class="nav-icon">📩</span> Plaintes Citoyennes
+                    <span class="nav-icon">📩</span> Plaintes passager
                 </button>
                 <button id="btn-config" class="nav-item" onclick="navigatePage('page-config')">
                     <span class="nav-icon">⚙️</span> Configuration Admin
@@ -180,7 +180,7 @@
         <div id="page-alertes" class="app-page">
             <div class="page-header">
                 <h2>Alertes de Trajectoire</h2>
-                <p>Historique des déviations et violations des périmètres de géofencing en temps réel.</p>
+                <p>Historique des déviations et violations des périmètres de géofencing.</p>
             </div>
             <div id="alertes-list-container" class="data-list">
                 <div style="text-align: center; color: #666; padding: 40px; font-style: italic;">Aucune infraction détectée sur le réseau.</div>
@@ -190,7 +190,7 @@
         <div id="page-plaintes" class="app-page">
             <div class="page-header">
                 <h2>Registre des Plaintes</h2>
-                <p>Réclamations reçues via l'application citoyenne MQTT, agrégées et triées par adresse IP de l'appareil émetteur.</p>
+                <p>Réclamations reçues des passagers.</p>
             </div>
             <div id="plaintes-ip-container">
                 <div style="text-align: center; color: #666; padding: 40px; font-style: italic;">Aucune plainte citoyenne enregistrée dans la session.</div>
@@ -228,7 +228,7 @@
                     <h3>Statut de l'Infrastructure Cloud</h3>
                     <div class="form-group">
                         <label>Passerelle Principale</label>
-                        <input type="text" value="Render WebService (Python 3.14)" disabled>
+                        <input type="text" value="Render WebService (Python-Server)" disabled>
                     </div>
                     <div class="form-group">
                         <label>Base de Données</label>
@@ -246,9 +246,8 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        // Variables globales d'état
         let map, busMarkers = {}, busPaths = {}, busPoints = {};
-        let registrePlaintesParIP = {}; // Structure: { "192.168.1.XX": [ {vehicule, message, date} ] }
+        let registrePlaintesParIP = {};
         let alertesActives = {};
         let configurationVehicules = {
             "1": { ligne: "Ligne GCM - Campus Lubumbashi", seuil: 50 },
@@ -256,7 +255,6 @@
         };
         let userLocationMarker = null;
 
-        // Blocage initial du pré-remplissage des navigateurs
         window.addEventListener('DOMContentLoaded', () => {
             setTimeout(() => {
                 document.getElementById('username').value = '';
@@ -277,29 +275,22 @@
             }
         }
 
-        // MOTEUR DE NAVIGATION ROUTAGE SPA
         function navigatePage(pageId) {
-            // Désactiver toutes les pages
             document.querySelectorAll('.app-page').forEach(page => page.classList.remove('active'));
-            // Désactiver le style actif des boutons de la barre latérale
             document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
             
-            // Activer la page choisie
             document.getElementById(pageId).classList.add('active');
             
-            // Associer le style actif au bouton cliqué
             if(pageId === 'page-carte') document.getElementById('btn-carte').classList.add('active');
             if(pageId === 'page-alertes') document.getElementById('btn-alertes').classList.add('active');
             if(pageId === 'page-plaintes') document.getElementById('btn-plaintes').classList.add('active');
             if(pageId === 'page-config') document.getElementById('btn-config').classList.add('active');
 
-            // Recalculer la taille du conteneur de carte si on retourne sur l'accueil
             if(pageId === 'page-carte' && map) {
                 setTimeout(() => { map.invalidateSize(); }, 50);
             }
         }
 
-        // INITIALISATION DU COEUR CARTOGRAPHIQUE
         function initialiserSysteme() {
             map = L.map('map', {
                 fadeAnimation: true, zoomAnimation: true, markerZoomAnimation: true,
@@ -331,7 +322,6 @@
             }, null, { enableHighAccuracy: true });
         }
 
-        // INTERCONNEXION SERVEUR RENDER
         function connecterServeur() {
             const statusIndicator = document.getElementById('status-indicator');
             const socket = new WebSocket('wss://transtrack-backend-1grb.onrender.com');
@@ -361,20 +351,25 @@
             };
         }
 
-        // TRAITEMENT CARTOGRAPHIQUE FLUIDE DYNAMIQUE
+        // TRAITEMENT CARTOGRAPHIQUE FLUIDE AVEC TRAITS INTERROMPUS (DASHARRAY)
         function mettreAjourBus(data) {
             const id = data.id_vehicule;
             const lat = parseFloat(data.latitude);
             const lon = parseFloat(data.longitude);
             const pos = [lat, lon];
 
-            // Trajectoire continue
+            // Trajectoire continue sous forme de TRAITS INTERROMPUS (pointillés)
             if (!busPaths[id]) {
-                busPaths[id] = L.polyline([], { color: '#00e676', weight: 4, opacity: 0.85 }).addTo(map);
+                busPaths[id] = L.polyline([], { 
+                    color: '#00e676', 
+                    weight: 4, 
+                    opacity: 0.9,
+                    dashArray: '10, 15' // 10px de ligne, 15px de vide pour un effet interrompu propre
+                }).addTo(map);
             }
             busPaths[id].addLatLng(pos);
 
-            // Cercles de prise de position
+            // Cercles discrets pour chaque prise de position
             if (!busPoints[id]) { busPoints[id] = []; }
             const dot = L.circleMarker(pos, {
                 radius: 4, fillColor: '#ffffff', color: '#111', weight: 1, fillOpacity: 1
@@ -404,12 +399,14 @@
             }
         }
 
-        // INJECTION DANS LA PAGE ALERTE SEPARÉE & MARQUAGE ROUGE
         function gererAlerteInfraction(data) {
             const id = data.id_vehicule;
             alertesActives[id] = true;
 
-            if (busPaths[id]) { busPaths[id].setStyle({ color: '#ff5252' }); }
+            // Si infraction, les pointillés passent temporairement au rouge
+            if (busPaths[id]) { 
+                busPaths[id].setStyle({ color: '#ff5252' }); 
+            }
             if (busMarkers[id]) {
                 const elem = busMarkers[id].getElement();
                 if (elem) {
@@ -418,9 +415,7 @@
                 }
             }
 
-            // Génération dynamique de la carte d'alerte dans la PAGE ALERTE
             const container = document.getElementById('alertes-list-container');
-            // Nettoyer le message vide s'il s'agit de la première alerte
             if(container.innerHTML.includes("Aucune infraction")) container.innerHTML = '';
 
             const dateStr = new Date().toLocaleTimeString('fr-FR');
@@ -436,9 +431,7 @@
             container.prepend(alertCard);
         }
 
-        // INJECTION DANS LA PAGE PLAINTES SÉPARÉE TRIÉE PAR ADRESSE IP
         function gererPlainteTriParIP(data) {
-            // Extraction de l'IP depuis le payload ou assignation d'une IP factuelle stable si absente
             const adresseIP = data.ip_client || "196.11.240." + (Math.floor(Math.random() * 80) + 10);
             const idVehicule = data.id_vehicule;
             const message = data.message;
@@ -459,7 +452,7 @@
 
         function rafraichirInterfacePlaintesIP() {
             const container = document.getElementById('plaintes-ip-container');
-            container.innerHTML = ''; // Réinitialisation de l'affichage
+            container.innerHTML = '';
 
             Object.keys(registrePlaintesParIP).forEach(ip => {
                 const listePlaintes = registrePlaintesParIP[ip];
@@ -490,7 +483,6 @@
             });
         }
 
-        // LOGIQUE INTERNE PAGE CONFIGURATION ADMINISTRATIVE
         function chargerConfigVehicule() {
             const id = document.getElementById('cfg-vehicule-select').value;
             const config = configurationVehicules[id];
@@ -505,7 +497,6 @@
             const nouvLigne = document.getElementById('cfg-ligne-nom').value;
             const nouvSeuil = parseInt(document.getElementById('cfg-seuil-tolerance').value);
 
-            // Sauvegarde en mémoire locale volatile pour l'application
             configurationVehicules[id].ligne = nouvLigne;
             configurationVehicules[id].seuil = nouvSeuil;
 
