@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GESTION TRANSPORT LUBUMBASHI - Système de Supervision </title>
+    <title>TransTrack Expert - Système de Supervision IoT</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     
@@ -131,7 +131,7 @@
 
     <div id="auth-screen">
         <div class="auth-box">
-            <h2>Login Access</h2>
+            <h2>TransTrack Login</h2>
             <input type="text" name="prevent_autofill" style="display:none;" />
             <input type="password" name="prevent_autofill_pwd" style="display:none;" />
             
@@ -145,7 +145,7 @@
     <div id="nav-sidebar">
         <div>
             <div class="brand-section">
-                <h1>Supervision Tansport</h1>
+                <h1>Supervision Transport</h1>
             </div>
             <div id="status-indicator" class="server-status offline">SERVEUR DISCONNECT</div>
             
@@ -157,7 +157,7 @@
                     <span class="nav-icon">⚠️</span> Alertes Géofencing
                 </button>
                 <button id="btn-plaintes" class="nav-item" onclick="navigatePage('page-plaintes')">
-                    <span class="nav-icon">📩</span> Plaintes passager
+                    <span class="nav-icon">📩</span> Plaintes Citoyennes
                 </button>
                 <button id="btn-config" class="nav-item" onclick="navigatePage('page-config')">
                     <span class="nav-icon">⚙️</span> Configuration Admin
@@ -180,7 +180,7 @@
         <div id="page-alertes" class="app-page">
             <div class="page-header">
                 <h2>Alertes de Trajectoire</h2>
-                <p>Historique des déviations et violations des périmètres de géofencing.</p>
+                <p>Historique des déviations et violations des périmètres de géofencing en temps réel.</p>
             </div>
             <div id="alertes-list-container" class="data-list">
                 <div style="text-align: center; color: #666; padding: 40px; font-style: italic;">Aucune infraction détectée sur le réseau.</div>
@@ -190,10 +190,10 @@
         <div id="page-plaintes" class="app-page">
             <div class="page-header">
                 <h2>Registre des Plaintes</h2>
-                <p>Réclamations reçues des passagers.</p>
+                <p>Réclamations reçues via l'application citoyenne MQTT, agrégées et triées par adresse IP de l'appareil émetteur.</p>
             </div>
             <div id="plaintes-ip-container">
-                <div style="text-align: center; color: #666; padding: 40px; font-style: italic;">Aucune plainte citoyenne enregistrée dans la session.</div>
+                <div style="text-align: center; color: #666; padding: 40px; font-style: italic;">Aucune plainte enregistrée dans la session.</div>
             </div>
         </div>
         
@@ -351,32 +351,50 @@
             };
         }
 
-        // TRAITEMENT CARTOGRAPHIQUE FLUIDE AVEC TRAITS INTERROMPUS (DASHARRAY)
+        // TRAITEMENT CARTOGRAPHIQUE FLUIDE : SCISSION NOIR / ROUGE EN POINTILLÉS
         function mettreAjourBus(data) {
             const id = data.id_vehicule;
             const lat = parseFloat(data.latitude);
             const lon = parseFloat(data.longitude);
             const pos = [lat, lon];
 
-            // Trajectoire continue sous forme de TRAITS INTERROMPUS (pointillés)
-            if (!busPaths[id]) {
-                busPaths[id] = L.polyline([], { 
-                    color: '#00e676', 
+            // Déterminer l'état et charger la couleur adéquate
+            const estEnInfraction = alertesActives[id] === true;
+            const couleurTrace = estEnInfraction ? '#ff5252' : '#000000';
+            const suffixeId = estEnInfraction ? '_infraction' : '_normal';
+            const cleUniqueChemin = id + suffixeId;
+
+            // Création dynamique du segment s'il n'existe pas
+            if (!busPaths[cleUniqueChemin]) {
+                busPaths[cleUniqueChemin] = L.polyline([], { 
+                    color: couleurTrace, 
                     weight: 4, 
                     opacity: 0.9,
-                    dashArray: '10, 15' // 10px de ligne, 15px de vide pour un effet interrompu propre
+                    dashArray: '10, 15' // Format traits interrompus identique
                 }).addTo(map);
-            }
-            busPaths[id].addLatLng(pos);
 
-            // Cercles discrets pour chaque prise de position
+                // Relier le dernier point valide au début de l'infraction pour éviter une coupure visuelle
+                if (estEnInfraction && busPaths[id + '_normal'] && busPaths[id + '_normal'].getLatLngs().length > 0) {
+                    const derniersPoints = busPaths[id + '_normal'].getLatLngs();
+                    busPaths[cleUniqueChemin].addLatLng(derniersPoints[derniersPoints.length - 1]);
+                }
+            }
+            
+            // Alimentation du tracé actif
+            busPaths[cleUniqueChemin].addLatLng(pos);
+
+            // Cercles de relevés géographiques
             if (!busPoints[id]) { busPoints[id] = []; }
             const dot = L.circleMarker(pos, {
-                radius: 4, fillColor: '#ffffff', color: '#111', weight: 1, fillOpacity: 1
+                radius: 4, 
+                fillColor: estEnInfraction ? '#ff5252' : '#ffffff', 
+                color: '#111', 
+                weight: 1, 
+                fillOpacity: 1
             }).addTo(map);
             busPoints[id].push(dot);
 
-            const alerteStyle = alertesActives[id] ? 'alert-marker' : '';
+            const alerteStyle = estEnInfraction ? 'alert-marker' : '';
 
             if (busMarkers[id]) {
                 busMarkers[id].setLatLng(pos);
@@ -384,7 +402,7 @@
                 if (elem) {
                     const innerDiv = elem.querySelector('.custom-bus-div');
                     if (innerDiv) {
-                        if (alertesActives[id]) innerDiv.classList.add('alert-marker');
+                        if (estEnInfraction) innerDiv.classList.add('alert-marker');
                         else innerDiv.classList.remove('alert-marker');
                     }
                 }
@@ -401,12 +419,8 @@
 
         function gererAlerteInfraction(data) {
             const id = data.id_vehicule;
-            alertesActives[id] = true;
+            alertesActives[id] = true; // Déclenche le drapeau pour la fonction de mise à jour cartographique
 
-            // Si infraction, les pointillés passent temporairement au rouge
-            if (busPaths[id]) { 
-                busPaths[id].setStyle({ color: '#ff5252' }); 
-            }
             if (busMarkers[id]) {
                 const elem = busMarkers[id].getElement();
                 if (elem) {
