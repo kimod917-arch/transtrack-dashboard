@@ -98,9 +98,10 @@
         .ip-title { font-family: monospace; font-size: 15px; color: #ffb300; font-weight: bold; }
         .ip-badge { background: #ffb300; color: #121212; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; }
         .ip-body { padding: 15px 20px; }
-        .complaint-row { padding: 10px 0; border-bottom: 1px solid #2c2c2c; font-size: 13px; }
+        .complaint-row { padding: 12px 0; border-bottom: 1px solid #2c2c2c; font-size: 13px; }
         .complaint-row:last-child { border-bottom: none; }
-        .complaint-meta { color: #00e676; font-weight: bold; margin-bottom: 4px; }
+        .complaint-meta { color: #00e676; font-weight: bold; margin-bottom: 6px; display: flex; justify-content: space-between; }
+        .complaint-text { color: #e0e0e0; background: #141414; padding: 10px; border-radius: 4px; border-left: 3px solid #ffb300; }
 
         /* Configuration Formulaires Admin */
         .grid-config { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; }
@@ -131,7 +132,7 @@
 
     <div id="auth-screen">
         <div class="auth-box">
-            <h2> Supervision Login</h2>
+            <h2>Supervision Login</h2>
             <input type="text" name="prevent_autofill" style="display:none;" />
             <input type="password" name="prevent_autofill_pwd" style="display:none;" />
             
@@ -189,11 +190,11 @@
         
         <div id="page-plaintes" class="app-page">
             <div class="page-header">
-                <h2>Registre des Plaintes</h2>
-                <p>Réclamations reçues via l'application citoyenne MQTT, agrégées et triées par adresse IP de l'appareil émetteur.</p>
+                <h2>Registre des Plaintes Passagers</h2>
+                <p>Réclamations transmises via l'application mobile, regroupées par adresse IP de l'émetteur.</p>
             </div>
             <div id="plaintes-ip-container">
-                <div style="text-align: center; color: #666; padding: 40px; font-style: italic;">Aucune plainte enregistrée dans la session.</div>
+                <div style="text-align: center; color: #666; padding: 40px; font-style: italic;">Aucune plainte enregistrée pour le moment.</div>
             </div>
         </div>
         
@@ -346,7 +347,6 @@
                 if (paquet.type === "POSITION") {
                     mettreAjourBus(paquet.data);
                 } else if (paquet.type === "INFRACTION_TRAJET") {
-                    // SI L'ALERTE CONTIENT UNE POSITION GPS, ON MET A JOUR LA CARTE EN ROUGE
                     if (paquet.data.latitude && paquet.data.longitude) {
                         alertesActives[paquet.data.id_vehicule] = true;
                         mettreAjourBus(paquet.data);
@@ -358,20 +358,17 @@
             };
         }
 
-        // TRAITEMENT CARTOGRAPHIQUE FLUIDE : SCISSION NOIR / ROUGE EN POINTILLÉS
         function mettreAjourBus(data) {
             const id = data.id_vehicule;
             const lat = parseFloat(data.latitude);
             const lon = parseFloat(data.longitude);
             const pos = [lat, lon];
 
-            // Déterminer l'état et charger la couleur adéquate
             const estEnInfraction = alertesActives[id] === true;
             const couleurTrace = estEnInfraction ? '#ff5252' : '#000000';
             const suffixeId = estEnInfraction ? '_infraction' : '_normal';
             const cleUniqueChemin = id + suffixeId;
 
-            // Création dynamique du segment s'il n'existe pas
             if (!busPaths[cleUniqueChemin]) {
                 busPaths[cleUniqueChemin] = L.polyline([], { 
                     color: couleurTrace, 
@@ -380,17 +377,14 @@
                     dashArray: estEnInfraction ? '5, 10' : '10, 15' 
                 }).addTo(map);
 
-                // Relier le dernier point valide au début de l'infraction pour éviter une coupure visuelle
                 if (estEnInfraction && busPaths[id + '_normal'] && busPaths[id + '_normal'].getLatLngs().length > 0) {
                     const derniersPoints = busPaths[id + '_normal'].getLatLngs();
                     busPaths[cleUniqueChemin].addLatLng(derniersPoints[derniersPoints.length - 1]);
                 }
             }
             
-            // Alimentation du tracé actif
             busPaths[cleUniqueChemin].addLatLng(pos);
 
-            // Cercles de relevés géographiques
             if (!busPoints[id]) { busPoints[id] = []; }
             const dot = L.circleMarker(pos, {
                 radius: 5, 
@@ -423,13 +417,12 @@
                     .bindPopup(`<b>Véhicule #${id}</b><br>Suivi dynamique actif.`);
             }
 
-            // Recentrer la carte sur la dernière position du bus
             map.panTo(pos);
         }
 
         function gererAlerteInfraction(data) {
             const id = data.id_vehicule;
-            alertesActives[id] = true; // Déclenche le drapeau pour la fonction de mise à jour cartographique
+            alertesActives[id] = true;
 
             if (busMarkers[id]) {
                 const elem = busMarkers[id].getElement();
@@ -448,26 +441,29 @@
             alertCard.innerHTML = `
                 <div class="alert-info">
                     <h4>⚠️ ALERTE CRITIQUE : VEHICULE #${id}</h4>
-                    <p>Déviance détectée par rapport à l'itinéraire assigné. Écart mesuré : <b>${parseFloat(data.distance_ecart).toFixed(1)} mètres</b>.</p>
+                    <p>Déviance détectée par rapport à l'itinéraire assigné. Écart mesuré : <b>${parseFloat(data.distance_ecart || 0).toFixed(1)} mètres</b>.</p>
                 </div>
                 <div class="alert-time">${dateStr}</div>
             `;
             container.prepend(alertCard);
         }
 
+        /* FONCTION GESTION DES PLAINTES REGROUPÉES PAR IP */
         function gererPlainteTriParIP(data) {
-            const adresseIP = data.ip_client || "196.11.240." + (Math.floor(Math.random() * 80) + 10);
-            const idVehicule = data.id_vehicule;
-            const message = data.message;
-            const temps = new Date().toLocaleTimeString('fr-FR');
+            // Récupération sécurisée de l'adresse IP
+            const adresseIP = data.ip_client || data.ip || "IP Inconnue / Anonyme";
+            const idVehicule = data.id_vehicule || "N/A";
+            const textePlainte = data.message || data.plainte || "Aucun détail fourni.";
+            const temps = data.heure || new Date().toLocaleTimeString('fr-FR');
 
             if (!registrePlaintesParIP[adresseIP]) {
                 registrePlaintesParIP[adresseIP] = [];
             }
 
-            registrePlaintesParIP[adresseIP].push({
+            // Ajout au début du tableau de cette IP
+            registrePlaintesParIP[adresseIP].unshift({
                 vehicule: idVehicule,
-                message: message,
+                message: textePlainte,
                 heure: temps
             });
 
@@ -478,7 +474,13 @@
             const container = document.getElementById('plaintes-ip-container');
             container.innerHTML = '';
 
-            Object.keys(registrePlaintesParIP).forEach(ip => {
+            const clefsIP = Object.keys(registrePlaintesParIP);
+            if (clefsIP.length === 0) {
+                container.innerHTML = `<div style="text-align: center; color: #666; padding: 40px; font-style: italic;">Aucune plainte enregistrée pour le moment.</div>`;
+                return;
+            }
+
+            clefsIP.forEach(ip => {
                 const listePlaintes = registrePlaintesParIP[ip];
                 
                 const groupWidget = document.createElement('div');
@@ -488,22 +490,25 @@
                 listePlaintes.forEach(p => {
                     rowsHTML += `
                         <div class="complaint-row">
-                            <div class="complaint-meta">🎯 Véhicule Cible : Bus #${p.vehicule} — à ${p.heure}</div>
-                            <div>Contenu : "${p.message}"</div>
+                            <div class="complaint-meta">
+                                <span>🎯 Cible : Bus #${p.vehicule}</span>
+                                <span style="color: #888; font-weight: normal;">🕒 ${p.heure}</span>
+                            </div>
+                            <div class="complaint-text">"${p.message}"</div>
                         </div>
                     `;
                 });
 
                 groupWidget.innerHTML = `
                     <div class="ip-header">
-                        <span class="ip-title">🖥️ IP Terminal : ${ip}</span>
-                        <span class="ip-badge">${listePlaintes.length} Message(s)</span>
+                        <span class="ip-title">💻 IP Terminal : ${ip}</span>
+                        <span class="ip-badge">${listePlaintes.length} Reçu(s)</span>
                     </div>
                     <div class="ip-body">
                         ${rowsHTML}
                     </div>
                 `;
-                container.prepend(groupWidget);
+                container.appendChild(groupWidget);
             });
         }
 
