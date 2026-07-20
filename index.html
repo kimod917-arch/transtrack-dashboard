@@ -332,6 +332,7 @@
             socket.onopen = () => {
                 statusIndicator.innerText = "SERVEUR CLOUD ONLINE";
                 statusIndicator.className = "server-status online";
+                console.log("Connecté au WebSocket backend TransTrack.");
             };
 
             socket.onclose = () => {
@@ -344,26 +345,38 @@
                 const paquet = jsonParseSecure(event.data);
                 if (!paquet) return;
 
-                if (paquet.type === "POSITION") {
-                    mettreAjourBus(paquet.data);
-                } else if (paquet.type === "INFRACTION_TRAJET") {
-                    if (paquet.data.latitude && paquet.data.longitude) {
-                        alertesActives[paquet.data.id_vehicule] = true;
-                        mettreAjourBus(paquet.data);
+                console.log("Données WebSocket reçues :", paquet);
+
+                // Normalisation des variables pour prévenir les structures imbriquées
+                const typeBrut = (paquet.type || paquet.event || "").toUpperCase();
+                const donnes = paquet.data || paquet;
+
+                if (typeBrut === "POSITION") {
+                    mettreAjourBus(donnes);
+                } 
+                else if (typeBrut === "INFRACTION_TRAJET" || typeBrut === "INFRACTION") {
+                    const idVehicule = donnes.id_vehicule || donnes.bus_id;
+                    if (idVehicule) alertesActives[idVehicule] = true;
+                    
+                    if (donnes.latitude && donnes.longitude) {
+                        mettreAjourBus(donnes);
                     }
-                    gererAlerteInfraction(paquet.data);
-                } else if (paquet.type === "PLAINTE") {
-                    gererPlainteTriParIP(paquet.data);
+                    gererAlerteInfraction(donnes);
+                } 
+                // Détection robuste du type PLAINTE (vérifie le type ou la présence de clés textuelles)
+                else if (typeBrut === "PLAINTE" || donnes.message || donnes.plainte || donnes.texte || donnes.comment) {
+                    gererPlainteTriParIP(donnes);
                 }
             };
         }
 
         function mettreAjourBus(data) {
-            const id = data.id_vehicule;
+            const id = data.id_vehicule || data.bus_id || "test";
             const lat = parseFloat(data.latitude);
             const lon = parseFloat(data.longitude);
-            const pos = [lat, lon];
+            if (isNaN(lat) || isNaN(lon)) return;
 
+            const pos = [lat, lon];
             const estEnInfraction = alertesActives[id] === true;
             const couleurTrace = estEnInfraction ? '#ff5252' : '#000000';
             const suffixeId = estEnInfraction ? '_infraction' : '_normal';
@@ -421,7 +434,7 @@
         }
 
         function gererAlerteInfraction(data) {
-            const id = data.id_vehicule;
+            const id = data.id_vehicule || data.bus_id || "inconnu";
             alertesActives[id] = true;
 
             if (busMarkers[id]) {
@@ -448,19 +461,21 @@
             container.prepend(alertCard);
         }
 
-        /* FONCTION GESTION DES PLAINTES REGROUPÉES PAR IP */
+        /* TRAITEMENT ROBUSTE ET REGROUPEMENT DES PLAINTES PAR IP */
         function gererPlainteTriParIP(data) {
-            // Récupération sécurisée de l'adresse IP
-            const adresseIP = data.ip_client || data.ip || "IP Inconnue / Anonyme";
-            const idVehicule = data.id_vehicule || "N/A";
-            const textePlainte = data.message || data.plainte || "Aucun détail fourni.";
-            const temps = data.heure || new Date().toLocaleTimeString('fr-FR');
+            console.log("Traitement de la plainte dans l'UI :", data);
+
+            // Résolution souple des clés
+            const adresseIP = data.ip_client || data.ip || data.client_ip || "127.0.0.1 (Anonyme/Local)";
+            const idVehicule = data.id_vehicule || data.bus_id || data.vehicule || "Non spécifié";
+            const textePlainte = data.message || data.plainte || data.texte || data.comment || "Aucun détail fourni.";
+            const temps = data.heure || data.timestamp || new Date().toLocaleTimeString('fr-FR');
 
             if (!registrePlaintesParIP[adresseIP]) {
                 registrePlaintesParIP[adresseIP] = [];
             }
 
-            // Ajout au début du tableau de cette IP
+            // Insertion en haut de tableau
             registrePlaintesParIP[adresseIP].unshift({
                 vehicule: idVehicule,
                 message: textePlainte,
