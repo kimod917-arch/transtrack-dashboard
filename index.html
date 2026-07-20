@@ -166,7 +166,7 @@
         </div>
         
         <div class="footer-sig">
-            MALABA KIMO DANIEL</b>Génie Électrique<br><b>Master 2 Électro-Info</b>
+            MALABA KIMO DANIEL<br><b>Master 2 Électro-Info</b>
         </div>
     </div>
 
@@ -209,6 +209,7 @@
                     <div class="form-group">
                         <label>Sélectionner le Véhicule</label>
                         <select id="cfg-vehicule-select" onchange="chargerConfigVehicule()">
+                            <option value="bus_test">Bus Réseau #bus_test</option>
                             <option value="1">Bus Réseau #1 (ESP32 DevKit)</option>
                             <option value="2">Bus Réseau #2 (Simulateur)</option>
                         </select>
@@ -250,6 +251,7 @@
         let registrePlaintesParIP = {};
         let alertesActives = {};
         let configurationVehicules = {
+            "bus_test": { ligne: "Ligne GCM - Campus Lubumbashi", seuil: 50 },
             "1": { ligne: "Ligne GCM - Campus Lubumbashi", seuil: 50 },
             "2": { ligne: "Ligne Circulaire Centre-Ville", seuil: 40 }
         };
@@ -344,6 +346,11 @@
                 if (paquet.type === "POSITION") {
                     mettreAjourBus(paquet.data);
                 } else if (paquet.type === "INFRACTION_TRAJET") {
+                    // SI L'ALERTE CONTIENT UNE POSITION GPS, ON MET A JOUR LA CARTE EN ROUGE
+                    if (paquet.data.latitude && paquet.data.longitude) {
+                        alertesActives[paquet.data.id_vehicule] = true;
+                        mettreAjourBus(paquet.data);
+                    }
                     gererAlerteInfraction(paquet.data);
                 } else if (paquet.type === "PLAINTE") {
                     gererPlainteTriParIP(paquet.data);
@@ -368,9 +375,9 @@
             if (!busPaths[cleUniqueChemin]) {
                 busPaths[cleUniqueChemin] = L.polyline([], { 
                     color: couleurTrace, 
-                    weight: 4, 
+                    weight: 5, 
                     opacity: 0.9,
-                    dashArray: '10, 15' // Format traits interrompus identique
+                    dashArray: estEnInfraction ? '5, 10' : '10, 15' 
                 }).addTo(map);
 
                 // Relier le dernier point valide au début de l'infraction pour éviter une coupure visuelle
@@ -386,7 +393,7 @@
             // Cercles de relevés géographiques
             if (!busPoints[id]) { busPoints[id] = []; }
             const dot = L.circleMarker(pos, {
-                radius: 4, 
+                radius: 5, 
                 fillColor: estEnInfraction ? '#ff5252' : '#ffffff', 
                 color: '#111', 
                 weight: 1, 
@@ -415,6 +422,9 @@
                 busMarkers[id] = L.marker(pos, { icon: busIcon }).addTo(map)
                     .bindPopup(`<b>Véhicule #${id}</b><br>Suivi dynamique actif.`);
             }
+
+            // Recentrer la carte sur la dernière position du bus
+            map.panTo(pos);
         }
 
         function gererAlerteInfraction(data) {
